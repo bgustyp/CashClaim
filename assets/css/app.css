@@ -1,0 +1,128 @@
+body {
+  background-color: #f3f4f6;
+  font-family: "Inter", sans-serif;
+  color: #1f2937;
+  padding-top: 100px;
+}
+.navbar {
+  background-color: #ffffff;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+  padding-top: 1rem;
+  padding-bottom: 1rem;
+}
+.navbar-brand {
+  font-weight: 700;
+  color: #111827 !important;
+  font-size: 1.25rem;
+}
+.card {
+  border: none;
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05),
+    0 2px 4px -1px rgba(0, 0, 0, 0.03);
+  border-radius: 16px;
+  background: #fff;
+  margin-bottom: 1.5rem;
+}
+.card-header {
+  background-color: transparent;
+  border-bottom: 1px solid #f3f4f6;
+  font-weight: 600;
+  padding: 1.25rem 1.5rem;
+  font-size: 1rem;
+}
+.card-body {
+  padding: 1.5rem;
+}
+.btn {
+  border-radius: 10px;
+  padding: 0.6rem 1.2rem;
+  font-weight: 500;
+}
+.btn-primary {
+  background-color: #4f46e5;
+  border-color: #4f46e5;
+}
+.btn-primary:hover {
+  background-color: #4338ca;
+  border-color: #4338ca;
+}
+.form-control,
+.form-select {
+  border-radius: 10px;
+  border: 1px solid #e5e7eb;
+  padding: 0.75rem 1rem;
+}
+.form-control:focus,
+.form-select:focus {
+  border-color: #4f46e5;
+  box-shadow: 0 0 0 4px rgba(79, 70, 229, 0.1);
+}
+.stat-card {
+  padding: 1.5rem;
+  border-radius: 16px;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+.stat-label {
+  font-size: 0.875rem;
+  font-weight: 500;
+  margin-bottom: 0.5rem;
+  opacity: 0.9;
+}
+.stat-value {
+  font-size: 1.75rem;
+  font-weight: 700;
+}
+.bg-blue {
+  background-color: #eff6ff;
+  color: #1e40af;
+}
+.bg-green {
+  background-color: #f0fdf4;
+  color: #166534;
+}
+.bg-red {
+  background-color: #fef2f2;
+  color: #991b1b;
+}
+
+.table thead th {
+  background-color: #f9fafb;
+  font-weight: 600;
+  text-transform: uppercase;
+  font-size: 0.75rem;
+  letter-spacing: 0.05em;
+  color: #6b7280;
+  border-bottom: 1px solid #e5e7eb;
+  padding: 1rem;
+}
+.table tbody td {
+  padding: 1rem;
+  vertical-align: middle;
+  border-bottom: 1px solid #f3f4f6;
+}
+
+.table-responsive {
+  max-height: 600px;
+  overflow-y: auto;
+}
+
+.table-responsive::-webkit-scrollbar {
+  width: 8px;
+}
+
+.table-responsive::-webkit-scrollbar-track {
+  background: #f1f1f1;
+  border-radius: 10px;
+}
+
+.table-responsive::-webkit-scrollbar-thumb {
+  background: #888;
+  border-radius: 10px;
+}
+
+.table-responsive::-webkit-scrollbar-thumb:hover {
+  background: #555;
+}

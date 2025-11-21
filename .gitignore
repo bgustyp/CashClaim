@@ -1,0 +1,78 @@
+# CashClaim - Git Ignore File
+
+# Database
+*.db
+*.sqlite
+*.sqlite3
+pettycash.db
+
+# OS Files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+desktop.ini
+
+# IDE & Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.project
+.settings/
+*.sublime-project
+*.sublime-workspace
+
+# Logs
+*.log
+error_log
+access_log
+
+# Temporary Files
+*.tmp
+*.temp
+*.cache
+*.bak
+
+# PHP
+vendor/
+composer.phar
+composer.lock
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# Backup Files
+*.backup
+*.old
+*_backup
+
+# Upload Directory (if added later)
+uploads/
+files/
+
+# Session Files
+sessions/
+
+# Cache
+cache/
+tmp/
+
+# System Files
+*.pid
+*.seed
+*.pid.lock
+
+# Coverage Reports
+coverage/
+*.coverage
+
+# Dependencies
+node_modules/
+bower_components/
