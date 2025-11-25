@@ -18,6 +18,9 @@
             </div>
             <div class="col-md-6 text-center text-md-end">
                 <p class="mb-0 text-muted small">
+                    <a href="https://github.com/bgustyp/CashClaim" target="_blank" class="text-decoration-none text-muted me-2">
+                        <i class="bi bi-github"></i>
+                    </a>
                     Made with <i class="bi bi-heart-fill text-danger"></i> in Indonesia
                 </p>
             </div>
