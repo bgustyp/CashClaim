@@ -46,6 +46,58 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
     exit;
 }
 
+// Handle Transfer Balance
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'transfer_balance') {
+    $targetUser = $_POST['target_user'];
+    $amount = str_replace('.', '', $_POST['amount']);
+    $date = $_POST['date'];
+    $description = trim($_POST['description']);
+    
+    if (empty($description)) {
+        $description = "Transfer";
+    }
+
+    if (!empty($targetUser) && !empty($amount) && $amount > 0 && !empty($date)) {
+        try {
+            // Check Sender Balance
+            $stmtBalance = $pdo->prepare("
+                SELECT 
+                    SUM(CASE WHEN type = 'income' THEN amount ELSE 0 END) as total_income,
+                    SUM(CASE WHEN type = 'expense' THEN amount ELSE 0 END) as total_expense
+                FROM expenses 
+                WHERE user = ?
+            ");
+            $stmtBalance->execute([$currentUser]);
+            $balanceStats = $stmtBalance->fetch(PDO::FETCH_ASSOC);
+            $currentBalance = ($balanceStats['total_income'] ?? 0) - ($balanceStats['total_expense'] ?? 0);
+
+            if ($currentBalance >= $amount) {
+                $pdo->beginTransaction();
+
+                // 1. Deduct from Sender
+                $stmtSender = $pdo->prepare("INSERT INTO expenses (date, description, category, amount, type, user) VALUES (?, ?, ?, ?, 'expense', ?)");
+                $stmtSender->execute([$date, "Transfer ke $targetUser: $description", 'Transfer Keluar', $amount, $currentUser]);
+
+                // 2. Add to Receiver
+                $stmtReceiver = $pdo->prepare("INSERT INTO expenses (date, description, category, amount, type, user) VALUES (?, ?, ?, ?, 'income', ?)");
+                $stmtReceiver->execute([$date, "Transfer dari $currentUser: $description", 'Transfer Masuk', $amount, $targetUser]);
+
+                $pdo->commit();
+                $_SESSION['message'] = '<div class="alert alert-success alert-dismissible fade show" role="alert">Transfer berhasil!<button type="button" class="btn-close" data-bs-dismiss="alert"></button></div>';
+            } else {
+                $_SESSION['message'] = '<div class="alert alert-danger">Saldo tidak mencukupi.</div>';
+            }
+        } catch (PDOException $e) {
+            $pdo->rollBack();
+            $_SESSION['message'] = '<div class="alert alert-danger">Gagal transfer: ' . $e->getMessage() . '</div>';
+        }
+    } else {
+        $_SESSION['message'] = '<div class="alert alert-warning">Mohon lengkapi data transfer.</div>';
+    }
+    header("Location: " . url('dashboard'));
+    exit;
+}
+
 // Handle Delete Transaction
 if (isset($_GET['action']) && $_GET['action'] === 'delete' && isset($_GET['id'])) {
     $id = $_GET['id'];

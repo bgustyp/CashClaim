@@ -105,10 +105,8 @@ $stmtList->execute($params);
 $expenses = $stmtList->fetchAll(PDO::FETCH_ASSOC);
 
 // Fetch Users for Admin Filter
-$usersList = [];
-if ($isAdmin) {
-    $usersList = $pdo->query("SELECT * FROM users ORDER BY name ASC")->fetchAll(PDO::FETCH_ASSOC);
-}
+// Fetch Users (Needed for Admin Filter AND Transfer Feature)
+$usersList = $pdo->query("SELECT * FROM users ORDER BY name ASC")->fetchAll(PDO::FETCH_ASSOC);
 
 // Handle Export CSV
 if (isset($_GET['action']) && $_GET['action'] === 'export') {
@@ -279,8 +277,13 @@ require 'header.php';
 
     <div class="col-lg-4 mb-4">
         <div class="card h-100">
-            <div class="card-header">
-                <i class="bi bi-plus-circle me-2"></i> Catat Transaksi
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <span><i class="bi bi-plus-circle me-2"></i> Catat Transaksi</span>
+                <?php if(!$isAdmin || ($isAdmin && $filterUser)): ?>
+                    <button type="button" class="btn btn-sm btn-outline-primary" data-bs-toggle="modal" data-bs-target="#transferModal">
+                        <i class="bi bi-arrow-left-right"></i> Transfer
+                    </button>
+                <?php endif; ?>
                 <?php if($isAdmin): ?>
                     <br><small class="text-muted">Untuk: <strong><?= htmlspecialchars($targetUser) ?></strong></small>
                 <?php endif; ?>
@@ -795,3 +798,89 @@ require 'header.php';
 </div> <!-- End Container -->
 
 <?php require 'footer.php'; ?>
+
+<!-- Transfer Modal -->
+<div class="modal fade" id="transferModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Transfer Saldo</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <form action="<?= url('process') ?>" method="POST">
+                <input type="hidden" name="action" value="transfer_balance">
+                <div class="modal-body">
+                    <div class="alert alert-info small mb-3">
+                        Saldo Anda saat ini: <strong>Rp <?= number_format($balance, 0, ',', '.') ?></strong>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label class="form-label fw-bold">Transfer Ke</label>
+                        <select name="target_user" class="form-select" required>
+                            <option value="">-- Pilih Penerima --</option>
+                            <?php foreach ($usersList as $u): ?>
+                                <?php if ($u['name'] !== $currentUser): ?>
+                                    <option value="<?= htmlspecialchars($u['name']) ?>"><?= htmlspecialchars($u['name']) ?></option>
+                                <?php endif; ?>
+                            <?php endforeach; ?>
+                        </select>
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="form-label fw-bold">Tanggal</label>
+                        <input type="date" name="date" class="form-control" value="<?= date('Y-m-d') ?>" required>
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="form-label fw-bold">Jumlah (Rp)</label>
+                        <div class="input-group">
+                            <input type="text" name="amount" id="transferAmount" class="form-control form-control-lg fw-bold" placeholder="0" onkeyup="formatRupiah(this)" required>
+                            <button class="btn btn-outline-secondary" type="button" onclick="setMaxBalance()">Max</button>
+                        </div>
+                        <div class="form-text">Klik Max untuk transfer semua saldo.</div>
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="form-label fw-bold">Keterangan</label>
+                        <input type="text" name="description" class="form-control" placeholder="Opsional (Default: Transfer)">
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="submit" class="btn btn-primary w-100">
+                        <i class="bi bi-send"></i> Kirim Saldo
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<script>
+function setMaxBalance() {
+    // Get current balance from PHP variable (passed as data attribute or global var would be cleaner, but parsing the alert text is hacky)
+    // Let's use the raw number from PHP
+    let maxBalance = <?= $balance ?>;
+    if (maxBalance < 0) maxBalance = 0;
+    
+    // Format to rupiah for display
+    let formatted = formatRupiahString(maxBalance.toString());
+    document.getElementById('transferAmount').value = formatted;
+}
+
+// Helper to format string directly (reusing existing formatRupiah logic concept)
+function formatRupiahString(angka) {
+    var number_string = angka.replace(/[^,\d]/g, '').toString(),
+    split   = number_string.split(','),
+    sisa    = split[0].length % 3,
+    rupiah  = split[0].substr(0, sisa),
+    ribuan  = split[0].substr(sisa).match(/\d{3}/gi);
+
+    if (ribuan) {
+        separator = sisa ? '.' : '';
+        rupiah += separator + ribuan.join('.');
+    }
+
+    rupiah = split[1] != undefined ? rupiah + ',' + split[1] : rupiah;
+    return rupiah;
+}
+</script>
