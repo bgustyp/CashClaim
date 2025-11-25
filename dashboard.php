@@ -22,6 +22,31 @@ $isAdmin = ($currentUser === 'Admin');
 $currentMonth = date('Y-m');
 $filterMonth = $_GET['filter_month'] ?? $currentMonth;
 $filterUser = $_GET['filter_user'] ?? ''; // Only for Admin
+$currentProjectId = $_GET['project_id'] ?? 1; // Default to Main Project
+
+// Fetch Projects for Current User
+$stmtProjects = $pdo->prepare("SELECT * FROM projects WHERE user_id = ? OR id = 1 ORDER BY id ASC");
+// Admin sees all projects? Or just their own? Let's stick to user's projects + Main (which is global/admin owned)
+// Actually, if user creates a project, it belongs to them.
+// Main project (ID 1) is shared context for now or treated as "Personal" for everyone if we didn't migrate old data to specific user projects.
+// But wait, old data has no project_id (default 1). So Project 1 is the "Legacy/Main" bucket.
+// Let's allow users to see Project 1 and their own projects.
+$stmtProjects->execute([$currentUser]);
+$projects = $stmtProjects->fetchAll(PDO::FETCH_ASSOC);
+
+// Verify access to requested project
+$projectAccessible = false;
+foreach ($projects as $p) {
+    if ($p['id'] == $currentProjectId) {
+        $projectAccessible = true;
+        $currentProjectName = $p['name'];
+        break;
+    }
+}
+if (!$projectAccessible) {
+    $currentProjectId = 1; // Fallback
+    $currentProjectName = 'Main';
+}
 
 // Handle Messages
 $message = '';
@@ -37,6 +62,10 @@ $params = [];
 // Month Filter (Always applied)
 $whereClauses[] = "strftime('%Y-%m', date) = ?";
 $params[] = $filterMonth;
+
+// Project Filter
+$whereClauses[] = "project_id = ?";
+$params[] = $currentProjectId;
 
 // User Filter Logic
 if ($isAdmin) {
@@ -81,6 +110,9 @@ if ($isAdmin) {
     $balanceWhereClauses[] = "user = ?";
     $balanceParams[] = $currentUser;
 }
+// Project Filter for Balance
+$balanceWhereClauses[] = "project_id = ?";
+$balanceParams[] = $currentProjectId;
 $balanceWhereSql = !empty($balanceWhereClauses) ? "WHERE " . implode(" AND ", $balanceWhereClauses) : "";
 
 $stmtBalance = $pdo->prepare("
@@ -243,12 +275,40 @@ require 'header.php';
 <!-- Dashboard Cards -->
 <div class="row mb-4">
     <div class="col-md-4 mb-2">
-        <div class="card stat-card bg-blue border-0">
-            <div class="stat-label">
-                Sisa Saldo 
-                <?= $isAdmin ? ($filterUser ? "($filterUser)" : "(Global)") : "Anda" ?>
+        <div class="card stat-card bg-blue border-0 h-100">
+            <div class="d-flex justify-content-between align-items-start">
+                <div class="stat-label">
+                    Sisa Saldo 
+                    <?= $isAdmin ? ($filterUser ? "($filterUser)" : "(Global)") : "Anda" ?>
+                </div>
+                <!-- Project Selector Dropdown -->
+                <div class="dropdown">
+                    <button class="btn btn-sm bg-white text-primary shadow-sm dropdown-toggle fw-bold" type="button" data-bs-toggle="dropdown">
+                        <?= htmlspecialchars($currentProjectName) ?>
+                    </button>
+                    <ul class="dropdown-menu dropdown-menu-end shadow">
+                        <li><h6 class="dropdown-header">Pilih Projek</h6></li>
+                        <?php foreach ($projects as $p): ?>
+                            <li>
+                                <a class="dropdown-item d-flex justify-content-between align-items-center <?= $p['id'] == $currentProjectId ? 'active' : '' ?>" 
+                                   href="?project_id=<?= $p['id'] ?>&filter_month=<?= $filterMonth ?>">
+                                    <?= htmlspecialchars($p['name']) ?>
+                                    <?php if($p['id'] == $currentProjectId): ?>
+                                        <i class="bi bi-check-lg ms-2"></i>
+                                    <?php endif; ?>
+                                </a>
+                            </li>
+                        <?php endforeach; ?>
+                        <li><hr class="dropdown-divider"></li>
+                        <li>
+                            <button class="dropdown-item text-primary" data-bs-toggle="modal" data-bs-target="#createProjectModal">
+                                <i class="bi bi-plus-circle me-2"></i> Buat Projek Baru
+                            </button>
+                        </li>
+                    </ul>
+                </div>
             </div>
-            <div class="stat-value">Rp <?= number_format($balance, 0, ',', '.') ?></div>
+            <div class="stat-value mt-2">Rp <?= number_format($balance, 0, ',', '.') ?></div>
         </div>
     </div>
     <div class="col-md-4 mb-2">
@@ -280,9 +340,14 @@ require 'header.php';
             <div class="card-header d-flex justify-content-between align-items-center">
                 <span><i class="bi bi-plus-circle me-2"></i> Catat Transaksi</span>
                 <?php if(!$isAdmin || ($isAdmin && $filterUser)): ?>
-                    <button type="button" class="btn btn-sm btn-outline-primary" data-bs-toggle="modal" data-bs-target="#transferModal">
-                        <i class="bi bi-arrow-left-right"></i> Transfer
-                    </button>
+                    <div class="d-flex gap-2">
+                        <button type="button" class="btn btn-sm btn-outline-secondary" data-bs-toggle="modal" data-bs-target="#moveFundsModal">
+                            <i class="bi bi-arrow-repeat"></i> Pindah Dana
+                        </button>
+                        <button type="button" class="btn btn-sm btn-outline-primary" data-bs-toggle="modal" data-bs-target="#transferModal">
+                            <i class="bi bi-arrow-left-right"></i> Transfer
+                        </button>
+                    </div>
                 <?php endif; ?>
                 <?php if($isAdmin): ?>
                     <br><small class="text-muted">Untuk: <strong><?= htmlspecialchars($targetUser) ?></strong></small>
@@ -291,6 +356,7 @@ require 'header.php';
             <div class="card-body">
                 <form action="<?= url('process') ?>" method="POST">
                     <input type="hidden" name="action" value="add_transaction">
+                    <input type="hidden" name="project_id" value="<?= $currentProjectId ?>">
                     <!-- If Admin, we might need to pass the target user -->
                     <?php if($isAdmin): ?>
                         <input type="hidden" name="target_user" value="<?= htmlspecialchars($targetUser) ?>">
@@ -359,6 +425,7 @@ require 'header.php';
                             <input type="hidden" name="filter_user" value="<?= htmlspecialchars($filterUser) ?>">
                         <?php endif; ?>
                         <input type="month" name="filter_month" class="form-control form-control-sm" value="<?= $filterMonth ?>" onchange="this.form.submit()">
+                        <input type="hidden" name="project_id" value="<?= $currentProjectId ?>">
                     </form>
                 </div>
             </div>
@@ -882,5 +949,100 @@ function formatRupiahString(angka) {
 
     rupiah = split[1] != undefined ? rupiah + ',' + split[1] : rupiah;
     return rupiah;
+}
+</script>
+
+<!-- Create Project Modal -->
+<div class="modal fade" id="createProjectModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Buat Projek Baru</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <form action="<?= url('process') ?>" method="POST">
+                <input type="hidden" name="action" value="create_project">
+                <div class="modal-body">
+                    <div class="mb-3">
+                        <label class="form-label fw-bold">Nama Projek</label>
+                        <input type="text" name="name" class="form-control" placeholder="Contoh: Liburan Bali" required>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label fw-bold">Deskripsi</label>
+                        <textarea name="description" class="form-control" rows="2" placeholder="Opsional"></textarea>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="submit" class="btn btn-primary w-100">Simpan Projek</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<!-- Move Funds Modal -->
+<div class="modal fade" id="moveFundsModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Pindah Dana Antar Projek</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <form action="<?= url('process') ?>" method="POST">
+                <input type="hidden" name="action" value="move_funds">
+                <input type="hidden" name="source_project_id" value="<?= $currentProjectId ?>">
+                
+                <div class="modal-body">
+                    <div class="alert alert-info small mb-3">
+                        Dari Projek: <strong><?= htmlspecialchars($currentProjectName) ?></strong><br>
+                        Saldo: <strong>Rp <?= number_format($balance, 0, ',', '.') ?></strong>
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="form-label fw-bold">Pindah Ke Projek</label>
+                        <select name="target_project_id" class="form-select" required>
+                            <option value="">-- Pilih Projek Tujuan --</option>
+                            <?php foreach ($projects as $p): ?>
+                                <?php if ($p['id'] != $currentProjectId): ?>
+                                    <option value="<?= $p['id'] ?>"><?= htmlspecialchars($p['name']) ?></option>
+                                <?php endif; ?>
+                            <?php endforeach; ?>
+                        </select>
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="form-label fw-bold">Tanggal</label>
+                        <input type="date" name="date" class="form-control" value="<?= date('Y-m-d') ?>" required>
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="form-label fw-bold">Jumlah (Rp)</label>
+                        <div class="input-group">
+                            <input type="text" name="amount" id="moveAmount" class="form-control form-control-lg fw-bold" placeholder="0" onkeyup="formatRupiah(this)" required>
+                            <button class="btn btn-outline-secondary" type="button" onclick="setMaxMoveBalance()">Max</button>
+                        </div>
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="form-label fw-bold">Keterangan</label>
+                        <input type="text" name="description" class="form-control" placeholder="Opsional (Default: Pindah Dana)">
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="submit" class="btn btn-primary w-100">
+                        <i class="bi bi-arrow-repeat"></i> Pindahkan Dana
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<script>
+function setMaxMoveBalance() {
+    let maxBalance = <?= $balance ?>;
+    if (maxBalance < 0) maxBalance = 0;
+    let formatted = formatRupiahString(maxBalance.toString());
+    document.getElementById('moveAmount').value = formatted;
 }
 </script>

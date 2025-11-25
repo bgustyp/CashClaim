@@ -50,6 +50,16 @@ try {
     )";
     $pdo->exec($queryReimbursements);
 
+    // Create projects table
+    $queryProjects = "CREATE TABLE IF NOT EXISTS projects (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id TEXT NOT NULL,
+        name TEXT NOT NULL,
+        description TEXT,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )";
+    $pdo->exec($queryProjects);
+
     // Migrations
     $columns = $pdo->query("PRAGMA table_info(expenses)")->fetchAll(PDO::FETCH_COLUMN, 1);
     if (!in_array('type', $columns)) {
@@ -57,6 +67,16 @@ try {
     }
     if (!in_array('user', $columns)) {
         $pdo->exec("ALTER TABLE expenses ADD COLUMN user TEXT DEFAULT 'Admin'");
+    }
+    if (!in_array('project_id', $columns)) {
+        $pdo->exec("ALTER TABLE expenses ADD COLUMN project_id INTEGER DEFAULT 1");
+    }
+
+    // Ensure Default Project Exists for each user (We will handle this dynamically, but let's ensure ID 1 exists as global default if needed)
+    // Actually, let's just ensure a "Main" project exists for Admin to start with.
+    $checkProject = $pdo->query("SELECT COUNT(*) FROM projects WHERE id = 1")->fetchColumn();
+    if ($checkProject == 0) {
+        $pdo->exec("INSERT INTO projects (id, user_id, name, description) VALUES (1, 'Admin', 'Main', 'Default Project')");
     }
 
     // Migration: Add access_code to users if missing
