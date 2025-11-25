@@ -56,6 +56,13 @@ CashClaim punya dua modul utama:
 - Share laporan via WhatsApp
 - Laporan siap print
 
+### Manajemen Projek (Baru!)
+
+- **Multi-Projek**: Kelola dana untuk berbagai keperluan (misal: Liburan, Kantor, Pribadi) dalam satu akun
+- **Pindah Dana**: Fitur mudah untuk memindahkan saldo antar projek sendiri
+- **Transfer Antar User**: Kirim saldo ke teman (otomatis masuk ke Main Wallet penerima)
+- **Isolasi Saldo**: Tiap projek punya catatan transaksi dan saldo sendiri-sendiri
+
 ### Modul Reimbursement
 
 - Submit request reimbursement
@@ -108,6 +115,14 @@ pettycash/
 
 ### Tabel
 
+#### `projects`
+
+- `id`: Primary key
+- `user_id`: Owner projek
+- `name`: Nama projek
+- `description`: Deskripsi projek
+- `created_at`: Timestamp
+
 #### `expenses`
 
 - `id`: Primary key
@@ -117,6 +132,9 @@ pettycash/
 - `amount`: Jumlah transaksi (integer)
 - `type`: 'income' atau 'expense'
 - `user`: User terkait
+- `type`: 'income' atau 'expense'
+- `user`: User terkait
+- `project_id`: ID projek terkait (Foreign Key)
 - `created_at`: Timestamp
 
 #### `users`
