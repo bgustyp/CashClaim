@@ -22,6 +22,8 @@
                         <i class="bi bi-github"></i>
                     </a>
                     Made with <i class="bi bi-heart-fill text-danger"></i> in Indonesia
+                    <span class="mx-2">|</span>
+                    <span class="badge bg-secondary">v<?= APP_VERSION ?></span>
                 </p>
             </div>
         </div>

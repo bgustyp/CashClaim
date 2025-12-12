@@ -5,7 +5,14 @@
  * @author    Bagus Setya
  * @github    https://github.com/bgustyp
  * @license   MIT License
+ * @version   2.0.0
  */
+
+// Application Version
+define('APP_VERSION', '2.0.0');
+define('APP_VERSION_DATE', '2025-12-12');
+
+session_start();
 
 // ============================================
 // URL Configuration
