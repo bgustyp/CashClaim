@@ -8,40 +8,52 @@
  */
 session_start();
 require_once __DIR__ . '/config.php';
+require_once __DIR__ . '/security.php';
 require 'db.php';
-if (!isset($_SESSION['user'])) {
-    header("Location: " . url('index'));
-    exit;
-}
 
-$currentUser = $_SESSION['user'];
-$isAdmin = ($currentUser === 'Admin');
+requireLogin();
+
+$currentUser = getCurrentUser();
+$isAdmin = isAdmin();
 
 // Handle Add Transaction
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'add_transaction') {
-    $date = $_POST['date'];
-    $description = trim($_POST['description']);
-    $category = $_POST['category'];
-    $amount = str_replace('.', '', $_POST['amount']); // Remove dots
-    $type = $_POST['type'];
-    $projectId = $_POST['project_id'] ?? 1; // Default to 1 (Main) if not specified
+    // Validate CSRF token
+    if (!validateCSRFToken()) {
+        setErrorMessage('Invalid security token. Please try again.');
+        header("Location: " . url('dashboard'));
+        exit;
+    }
+    
+    $date = sanitizeString($_POST['date']);
+    $description = sanitizeString($_POST['description']);
+    $category = sanitizeString($_POST['category']);
+    $amount = sanitizeAmount($_POST['amount']);
+    $type = sanitizeString($_POST['type']);
+    $projectId = sanitizeInt($_POST['project_id'] ?? 1);
     
     // Determine who this transaction belongs to
     $targetUser = $currentUser;
     if ($isAdmin && isset($_POST['target_user']) && !empty($_POST['target_user'])) {
-        $targetUser = $_POST['target_user'];
+        $targetUser = sanitizeString($_POST['target_user']);
     }
 
     if (!empty($date) && !empty($description) && !empty($amount)) {
         try {
             $stmt = $pdo->prepare("INSERT INTO expenses (date, description, category, amount, type, user, project_id) VALUES (?, ?, ?, ?, ?, ?, ?)");
             $stmt->execute([$date, $description, $category, $amount, $type, $targetUser, $projectId]);
-            $_SESSION['message'] = '<div class="alert alert-success alert-dismissible fade show" role="alert">Transaksi berhasil disimpan!<button type="button" class="btn-close" data-bs-dismiss="alert"></button></div>';
+            
+            // Remember last project
+            $_SESSION['last_project_id'] = $projectId;
+            
+            setSuccessMessage('Transaksi berhasil disimpan!');
+            header("Location: " . url('dashboard') . "?success=1&project_id=" . $projectId);
+            exit;
         } catch (PDOException $e) {
-            $_SESSION['message'] = '<div class="alert alert-danger">Gagal menyimpan: ' . $e->getMessage() . '</div>';
+            setErrorMessage('Gagal menyimpan: ' . $e->getMessage());
         }
     } else {
-        $_SESSION['message'] = '<div class="alert alert-warning">Mohon lengkapi semua data.</div>';
+        setWarningMessage('Mohon lengkapi semua data.');
     }
     header("Location: " . url('dashboard'));
     exit;
@@ -49,19 +61,26 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
 
 // Handle Create Project
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'create_project') {
-    $name = trim($_POST['name']);
-    $description = trim($_POST['description']);
+    // Validate CSRF token
+    if (!validateCSRFToken()) {
+        setErrorMessage('Invalid security token. Please try again.');
+        header("Location: " . url('dashboard'));
+        exit;
+    }
+    
+    $name = sanitizeString($_POST['name']);
+    $description = sanitizeString($_POST['description']);
     
     if (!empty($name)) {
         try {
             $stmt = $pdo->prepare("INSERT INTO projects (user_id, name, description) VALUES (?, ?, ?)");
             $stmt->execute([$currentUser, $name, $description]);
-            $_SESSION['message'] = '<div class="alert alert-success alert-dismissible fade show" role="alert">Projek berhasil dibuat!<button type="button" class="btn-close" data-bs-dismiss="alert"></button></div>';
+            setSuccessMessage('Projek berhasil dibuat!');
         } catch (PDOException $e) {
-            $_SESSION['message'] = '<div class="alert alert-danger">Gagal membuat projek: ' . $e->getMessage() . '</div>';
+            setErrorMessage('Gagal membuat projek: ' . $e->getMessage());
         }
     } else {
-        $_SESSION['message'] = '<div class="alert alert-warning">Nama projek tidak boleh kosong.</div>';
+        setWarningMessage('Nama projek tidak boleh kosong.');
     }
     header("Location: " . url('dashboard'));
     exit;
@@ -136,26 +155,44 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
 
 // Handle Transfer Balance
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'transfer_balance') {
-    $targetUser = $_POST['target_user'];
-    $amount = str_replace('.', '', $_POST['amount']);
-    $date = $_POST['date'];
-    $description = trim($_POST['description']);
+    // Validate CSRF token
+    if (!validateCSRFToken()) {
+        setErrorMessage('Invalid security token. Please try again.');
+        header("Location: " . url('dashboard'));
+        exit;
+    }
     
+    $targetUser = sanitizeString($_POST['target_user']);
+    $amount = sanitizeAmount($_POST['amount']);
+    $date = sanitizeString($_POST['date']);
+    $description = sanitizeString($_POST['description']);
+    
+    $projectId = sanitizeInt($_POST['project_id'] ?? 1);
+
     if (empty($description)) {
         $description = "Transfer";
     }
 
     if (!empty($targetUser) && !empty($amount) && $amount > 0 && !empty($date)) {
+        // Validate target user exists
+        $checkUser = $pdo->prepare("SELECT id FROM users WHERE name = ?");
+        $checkUser->execute([$targetUser]);
+        if (!$checkUser->fetch()) {
+            setErrorMessage('User tujuan tidak ditemukan.');
+            header("Location: " . url('dashboard'));
+            exit;
+        }
+        
         try {
-            // Check Sender Balance
+            // Check Sender Balance (Project Specific)
             $stmtBalance = $pdo->prepare("
                 SELECT 
                     SUM(CASE WHEN type = 'income' THEN amount ELSE 0 END) as total_income,
                     SUM(CASE WHEN type = 'expense' THEN amount ELSE 0 END) as total_expense
                 FROM expenses 
-                WHERE user = ?
+                WHERE user = ? AND project_id = ?
             ");
-            $stmtBalance->execute([$currentUser]);
+            $stmtBalance->execute([$currentUser, $projectId]);
             $balanceStats = $stmtBalance->fetch(PDO::FETCH_ASSOC);
             $currentBalance = ($balanceStats['total_income'] ?? 0) - ($balanceStats['total_expense'] ?? 0);
 
@@ -163,27 +200,38 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
                 $pdo->beginTransaction();
 
                 // 1. Deduct from Sender (Current Project context)
-                // Transfer to friend always comes from the CURRENT project the user is viewing.
                 $stmtSender = $pdo->prepare("INSERT INTO expenses (date, description, category, amount, type, user, project_id) VALUES (?, ?, ?, ?, 'expense', ?, ?)");
                 $stmtSender->execute([$date, "Transfer ke $targetUser: $description", 'Transfer Keluar', $amount, $currentUser, $projectId]);
 
-                // 2. Add to Receiver (ALWAYS to Main Wallet / Project ID 1)
-                // This ensures the receiver knows where the money is.
-                $receiverProjectId = 1; 
+                // 2. Add to Receiver (ALWAYS to Main Wallet / Project ID from their Main project)
+                // Ensure receiver has Main project
+                $checkReceiverProject = $pdo->prepare("SELECT id FROM projects WHERE user_id = ? AND name = 'Main'");
+                $checkReceiverProject->execute([$targetUser]);
+                $receiverProject = $checkReceiverProject->fetch(PDO::FETCH_ASSOC);
+                
+                if (!$receiverProject) {
+                    // Create Main project for receiver if not exists
+                    $createProject = $pdo->prepare("INSERT INTO projects (user_id, name, description) VALUES (?, 'Main', 'Default Project')");
+                    $createProject->execute([$targetUser]);
+                    $receiverProjectId = $pdo->lastInsertId();
+                } else {
+                    $receiverProjectId = $receiverProject['id'];
+                }
+                
                 $stmtReceiver = $pdo->prepare("INSERT INTO expenses (date, description, category, amount, type, user, project_id) VALUES (?, ?, ?, ?, 'income', ?, ?)");
                 $stmtReceiver->execute([$date, "Transfer dari $currentUser: $description", 'Transfer Masuk', $amount, $targetUser, $receiverProjectId]);
 
                 $pdo->commit();
-                $_SESSION['message'] = '<div class="alert alert-success alert-dismissible fade show" role="alert">Transfer berhasil!<button type="button" class="btn-close" data-bs-dismiss="alert"></button></div>';
+                setSuccessMessage('Transfer berhasil!');
             } else {
-                $_SESSION['message'] = '<div class="alert alert-danger">Saldo tidak mencukupi.</div>';
+                setErrorMessage('Saldo tidak mencukupi.');
             }
         } catch (PDOException $e) {
             $pdo->rollBack();
-            $_SESSION['message'] = '<div class="alert alert-danger">Gagal transfer: ' . $e->getMessage() . '</div>';
+            setErrorMessage('Gagal transfer: ' . $e->getMessage());
         }
     } else {
-        $_SESSION['message'] = '<div class="alert alert-warning">Mohon lengkapi data transfer.</div>';
+        setWarningMessage('Mohon lengkapi data transfer.');
     }
     header("Location: " . url('dashboard'));
     exit;

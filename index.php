@@ -8,6 +8,7 @@
  */
 session_start();
 require_once __DIR__ . '/config.php';
+require_once __DIR__ . '/security.php';
 require 'db.php';
 
 // Handle Logout
@@ -20,38 +21,60 @@ if (isset($_GET['logout'])) {
 // Handle Login
 $loginError = '';
 if (isset($_POST['login_user'])) {
-    $username = $_POST['login_user'];
-    $accessCode = $_POST['access_code'];
-
-    $stmt = $pdo->prepare("SELECT * FROM users WHERE name = ?");
-    $stmt->execute([$username]);
-    $user = $stmt->fetch(PDO::FETCH_ASSOC);
-
-    if ($user && $user['access_code'] === $accessCode) {
-        $_SESSION['user'] = $user['name'];
-        header("Location: " . url('dashboard'));
-        exit;
+    // Validate CSRF token
+    if (!validateCSRFToken()) {
+        $loginError = '<div class="alert alert-danger">Invalid security token. Please try again.</div>';
     } else {
-        $loginError = '<div class="alert alert-danger">Kode Akses Salah!</div>';
+        $username = sanitizeString($_POST['login_user']);
+        $accessCode = $_POST['access_code'];
+
+        $stmt = $pdo->prepare("SELECT * FROM users WHERE name = ?");
+        $stmt->execute([$username]);
+        $user = $stmt->fetch(PDO::FETCH_ASSOC);
+
+        // Use password verification with hashing
+        if ($user && verifyPassword($accessCode, $user['access_code'])) {
+            $_SESSION['user'] = $user['name'];
+            header("Location: " . url('dashboard'));
+            exit;
+        } else {
+            $loginError = '<div class="alert alert-danger">Kode Akses Salah!</div>';
+        }
     }
 }
 
 // Handle Add User
 $message = '';
 if (isset($_POST['add_user'])) {
-    $name = trim($_POST['new_user_name']);
-    $code = trim($_POST['new_user_code']);
-    
-    if (!empty($name) && !empty($code)) {
-        try {
-            $stmt = $pdo->prepare("INSERT INTO users (name, access_code) VALUES (?, ?)");
-            $stmt->execute([$name, $code]);
-            $message = '<div class="alert alert-success">User berhasil ditambahkan! Silakan login.</div>';
-        } catch (PDOException $e) {
-            $message = '<div class="alert alert-danger">Gagal: Nama user mungkin sudah ada.</div>';
-        }
+    // Validate CSRF token
+    if (!validateCSRFToken()) {
+        $message = '<div class="alert alert-danger">Invalid security token. Please try again.</div>';
     } else {
-        $message = '<div class="alert alert-warning">Nama dan Kode Akses wajib diisi.</div>';
+        $name = sanitizeString($_POST['new_user_name']);
+        $code = $_POST['new_user_code'];
+        
+        if (!empty($name) && !empty($code)) {
+            try {
+                $pdo->beginTransaction();
+                
+                // Hash the password before storing
+                $hashedCode = hashPassword($code);
+                $stmt = $pdo->prepare("INSERT INTO users (name, access_code) VALUES (?, ?)");
+                $stmt->execute([$name, $hashedCode]);
+                
+                // Auto-create Main project for new user
+                $stmtProject = $pdo->prepare("INSERT INTO projects (user_id, name, description) VALUES (?, 'Main', 'Default Project')");
+                $stmtProject->execute([$name]);
+                
+                $pdo->commit();
+                $message = '<div class="alert alert-success">User berhasil ditambahkan! Silakan login.</div>';
+            } catch (PDOException $e) {
+                $pdo->rollBack();
+                $message = '<div class="alert alert-danger">Gagal: Nama user mungkin sudah ada.</div>';
+            }
+        } else {
+            $message = '<div class="alert alert-warning">Nama dan Kode Akses wajib diisi.</div>';
+        }
     }
 }
 
@@ -103,8 +126,9 @@ require 'header.php';
                     </button>
                     <div class="collapse mb-3" id="addUserForm">
                         <form method="POST" class="d-grid gap-2">
+                            <?php csrfField(); ?>
                             <input type="text" name="new_user_name" class="form-control" placeholder="Nama User" required>
-                            <input type="text" name="new_user_code" class="form-control" placeholder="Kode Akses (PIN)" required>
+                            <input type="password" name="new_user_code" class="form-control" placeholder="Kode Akses (PIN)" required>
                             <button type="submit" name="add_user" value="1" class="btn btn-primary">Simpan User</button>
                         </form>
                     </div>
@@ -123,6 +147,7 @@ require 'header.php';
                 </div>
                 <form method="POST">
                     <div class="modal-body">
+                        <?php csrfField(); ?>
                         <input type="hidden" name="login_user" id="modalUsername">
                         <div class="mb-3">
                             <label class="form-label">User: <span id="displayUsername" class="fw-bold"></span></label>

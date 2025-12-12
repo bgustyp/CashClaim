@@ -8,29 +8,32 @@
  */
 session_start();
 require_once __DIR__ . '/config.php';
+require_once __DIR__ . '/security.php';
 require 'db.php';
 
 // Strict Access Control
-if (!isset($_SESSION['user'])) {
-    header("Location: " . url('index'));
+requireLogin();
+
+$currentUser = getCurrentUser();
+$isAdmin = isAdmin();
+
+// Handle filter changes from POST
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['update_filters'])) {
+    if (isset($_POST['filter_month'])) $_SESSION['filter_month'] = $_POST['filter_month'];
+    if (isset($_POST['filter_user'])) $_SESSION['filter_user'] = $_POST['filter_user'];
+    if (isset($_POST['project_id'])) $_SESSION['current_project_id'] = $_POST['project_id'];
+    header("Location: " . url('dashboard'));
     exit;
 }
 
-$currentUser = $_SESSION['user'];
-$isAdmin = ($currentUser === 'Admin');
-
+// Get filters from session or use defaults
 $currentMonth = date('Y-m');
-$filterMonth = $_GET['filter_month'] ?? $currentMonth;
-$filterUser = $_GET['filter_user'] ?? ''; // Only for Admin
-$currentProjectId = $_GET['project_id'] ?? 1; // Default to Main Project
+$filterMonth = $_SESSION['filter_month'] ?? $currentMonth;
+$filterUser = $_SESSION['filter_user'] ?? '';
+$currentProjectId = $_SESSION['current_project_id'] ?? ($_SESSION['last_project_id'] ?? 1);
 
 // Fetch Projects for Current User
-$stmtProjects = $pdo->prepare("SELECT * FROM projects WHERE user_id = ? OR id = 1 ORDER BY id ASC");
-// Admin sees all projects? Or just their own? Let's stick to user's projects + Main (which is global/admin owned)
-// Actually, if user creates a project, it belongs to them.
-// Main project (ID 1) is shared context for now or treated as "Personal" for everyone if we didn't migrate old data to specific user projects.
-// But wait, old data has no project_id (default 1). So Project 1 is the "Legacy/Main" bucket.
-// Let's allow users to see Project 1 and their own projects.
+$stmtProjects = $pdo->prepare("SELECT * FROM projects WHERE user_id = ? ORDER BY id ASC");
 $stmtProjects->execute([$currentUser]);
 $projects = $stmtProjects->fetchAll(PDO::FETCH_ASSOC);
 
@@ -49,11 +52,7 @@ if (!$projectAccessible) {
 }
 
 // Handle Messages
-$message = '';
-if (isset($_SESSION['message'])) {
-    $message = $_SESSION['message'];
-    unset($_SESSION['message']);
-}
+$message = getMessage();
 
 // Build Query Conditions
 $whereClauses = [];
@@ -234,7 +233,9 @@ require 'header.php';
 <?php if ($isAdmin): ?>
 <div class="card mb-4 bg-light border-0">
     <div class="card-body py-2">
-        <form method="GET" class="row g-2 align-items-center">
+        <form method="POST" class="row g-2 align-items-center">
+            <?php csrfField(); ?>
+            <input type="hidden" name="update_filters" value="1">
             <div class="col-auto">
                 <span class="badge bg-dark">ADMIN MODE</span>
             </div>
@@ -257,7 +258,7 @@ require 'header.php';
                 </button>
             </div>
             <div class="col-auto">
-                <a href="<?= url('report') ?>?filter_month=<?= $filterMonth ?>" class="btn btn-sm btn-info text-white" target="_blank">
+                <a href="<?= url('report') ?>" class="btn btn-sm btn-info text-white" target="_blank">
                     <i class="bi bi-file-text"></i> Print Report
                 </a>
             </div>
@@ -266,7 +267,6 @@ require 'header.php';
                     <i class="bi bi-people"></i> Kelola User
                 </a>
             </div>
-            <input type="hidden" name="filter_month" value="<?= htmlspecialchars($filterMonth) ?>">
         </form>
     </div>
 </div>
@@ -291,7 +291,7 @@ require 'header.php';
                         <?php foreach ($projects as $p): ?>
                             <li>
                                 <a class="dropdown-item d-flex justify-content-between align-items-center <?= $p['id'] == $currentProjectId ? 'active' : '' ?>" 
-                                   href="?project_id=<?= $p['id'] ?>&filter_month=<?= $filterMonth ?>">
+                                   href="#" onclick="changeProject(<?= $p['id'] ?>); return false;">
                                     <?= htmlspecialchars($p['name']) ?>
                                     <?php if($p['id'] == $currentProjectId): ?>
                                         <i class="bi bi-check-lg ms-2"></i>
@@ -355,6 +355,7 @@ require 'header.php';
             </div>
             <div class="card-body">
                 <form action="<?= url('process') ?>" method="POST">
+                    <?php csrfField(); ?>
                     <input type="hidden" name="action" value="add_transaction">
                     <input type="hidden" name="project_id" value="<?= $currentProjectId ?>">
                     <!-- If Admin, we might need to pass the target user -->
@@ -395,6 +396,14 @@ require 'header.php';
 
                     <div class="mb-3">
                         <label class="form-label small text-muted text-uppercase fw-bold">Jumlah (Rp)</label>
+                        <!-- Quick Amount Buttons -->
+                        <div class="btn-group w-100 mb-2" role="group">
+                            <button type="button" class="btn btn-sm btn-outline-secondary" onclick="setAmount(10000)">10K</button>
+                            <button type="button" class="btn btn-sm btn-outline-secondary" onclick="setAmount(20000)">20K</button>
+                            <button type="button" class="btn btn-sm btn-outline-secondary" onclick="setAmount(50000)">50K</button>
+                            <button type="button" class="btn btn-sm btn-outline-secondary" onclick="setAmount(100000)">100K</button>
+                            <button type="button" class="btn btn-sm btn-outline-secondary" onclick="setAmount(200000)">200K</button>
+                        </div>
                         <input type="text" name="amount" class="form-control form-control-lg fw-bold" placeholder="0" onkeyup="formatRupiah(this)" required>
                     </div>
 
@@ -412,7 +421,7 @@ require 'header.php';
                 
                 <div class="d-flex align-items-center gap-2 flex-wrap">
                     <!-- Export & Share Buttons -->
-                    <a href="?action=export&filter_month=<?= $filterMonth ?><?= $isAdmin && $filterUser ? '&filter_user=' . urlencode($filterUser) : '' ?>" class="btn btn-sm btn-success">
+                    <a href="<?= url('dashboard') ?>?action=export" class="btn btn-sm btn-success">
                         <i class="bi bi-file-earmark-excel"></i> Export
                     </a>
                     <a href="<?= $waLink ?>" target="_blank" class="btn btn-sm btn-success">
@@ -420,12 +429,13 @@ require 'header.php';
                     </a>
                     
                     <!-- Month Filter -->
-                    <form method="GET" class="d-flex align-items-center gap-2">
+                    <form method="POST" class="d-flex align-items-center gap-2">
+                        <?php csrfField(); ?>
+                        <input type="hidden" name="update_filters" value="1">
                         <?php if($isAdmin && $filterUser): ?>
                             <input type="hidden" name="filter_user" value="<?= htmlspecialchars($filterUser) ?>">
                         <?php endif; ?>
                         <input type="month" name="filter_month" class="form-control form-control-sm" value="<?= $filterMonth ?>" onchange="this.form.submit()">
-                        <input type="hidden" name="project_id" value="<?= $currentProjectId ?>">
                     </form>
                 </div>
             </div>
@@ -468,7 +478,9 @@ require 'header.php';
                                         <?= $sign ?> Rp <?= number_format($row['amount'], 0, ',', '.') ?>
                                     </td>
                                     <td class="text-center">
-                                        <a href="<?= url('process') ?>?action=delete&id=<?= $row['id'] ?>" class="btn btn-sm btn-light text-danger" onclick="return confirm('Hapus transaksi ini?')">
+                                        <a href="<?= url('process') ?>?action=delete&id=<?= $row['id'] ?>" 
+                                           class="btn btn-sm btn-light text-danger" 
+                                           onclick="return confirmDelete(<?= $row['id'] ?>, '<?= addslashes($row['description']) ?>', <?= $row['amount'] ?>, '<?= date('d/m/Y', strtotime($row['date'])) ?>')">
                                             <i class="bi bi-trash"></i>
                                         </a>
                                     </td>
@@ -492,6 +504,7 @@ require 'header.php';
                 <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
             </div>
             <form action="<?= url('process') ?>" method="POST">
+                <?php csrfField(); ?>
                 <input type="hidden" name="action" value="add_transaction">
                 <input type="hidden" name="type" value="income">
                 <div class="modal-body">
@@ -630,6 +643,7 @@ require 'header.php';
                     </div>
                     <div class="card-body">
                         <form action="<?= url('reimbursement') ?>" method="POST">
+                            <?php csrfField(); ?>
                             <input type="hidden" name="action" value="submit_reimbursement">
                             
                             <div class="mb-3">
@@ -734,7 +748,8 @@ require 'header.php';
                                                 </td>
                                             <?php elseif ($isAdmin && $reimb['status'] === 'approved'): ?>
                                                 <td class="text-center">
-                                                    <form action="reimbursement" method="POST" style="display:inline;">
+                                                    <form action="<?= url('reimbursement') ?>" method="POST" style="display:inline;">
+                                                        <?php csrfField(); ?>
                                                         <input type="hidden" name="action" value="mark_paid">
                                                         <input type="hidden" name="reimbursement_id" value="<?= $reimb['id'] ?>">
                                                         <button type="submit" class="btn btn-sm btn-info text-white" onclick="return confirm('Tandai sebagai dibayar?')">
@@ -757,6 +772,7 @@ require 'header.php';
                                                         <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
                                                     </div>
                                                     <form action="<?= url('reimbursement') ?>" method="POST">
+                                                        <?php csrfField(); ?>
                                                         <input type="hidden" name="action" value="approve_reimbursement">
                                                         <input type="hidden" name="reimbursement_id" value="<?= $reimb['id'] ?>">
                                                         <div class="modal-body">
@@ -784,6 +800,7 @@ require 'header.php';
                                                         <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
                                                     </div>
                                                     <form action="<?= url('reimbursement') ?>" method="POST">
+                                                        <?php csrfField(); ?>
                                                         <input type="hidden" name="action" value="reject_reimbursement">
                                                         <input type="hidden" name="reimbursement_id" value="<?= $reimb['id'] ?>">
                                                         <div class="modal-body">
@@ -875,7 +892,9 @@ require 'header.php';
                 <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
             </div>
             <form action="<?= url('process') ?>" method="POST">
+                <?php csrfField(); ?>
                 <input type="hidden" name="action" value="transfer_balance">
+                <input type="hidden" name="project_id" value="<?= $currentProjectId ?>">
                 <div class="modal-body">
                     <div class="alert alert-info small mb-3">
                         Saldo Anda saat ini: <strong>Rp <?= number_format($balance, 0, ',', '.') ?></strong>
@@ -961,6 +980,7 @@ function formatRupiahString(angka) {
                 <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
             </div>
             <form action="<?= url('process') ?>" method="POST">
+                <?php csrfField(); ?>
                 <input type="hidden" name="action" value="create_project">
                 <div class="modal-body">
                     <div class="mb-3">
@@ -989,6 +1009,7 @@ function formatRupiahString(angka) {
                 <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
             </div>
             <form action="<?= url('process') ?>" method="POST">
+                <?php csrfField(); ?>
                 <input type="hidden" name="action" value="move_funds">
                 <input type="hidden" name="source_project_id" value="<?= $currentProjectId ?>">
                 

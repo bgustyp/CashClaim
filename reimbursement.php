@@ -8,32 +8,38 @@
  */
 session_start();
 require_once __DIR__ . '/config.php';
+require_once __DIR__ . '/security.php';
 require 'db.php';
-if (!isset($_SESSION['user'])) {
-    header("Location: " . url('index'));
-    exit;
-}
 
-$currentUser = $_SESSION['user'];
-$isAdmin = ($currentUser === 'Admin');
+requireLogin();
+
+$currentUser = getCurrentUser();
+$isAdmin = isAdmin();
 
 // Handle Submit Reimbursement
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'submit_reimbursement') {
-    $date = $_POST['date'];
-    $description = trim($_POST['description']);
-    $category = $_POST['category'];
-    $amount = str_replace('.', '', $_POST['amount']); // Remove dots
+    // Validate CSRF token
+    if (!validateCSRFToken()) {
+        setErrorMessage('Invalid security token. Please try again.');
+        header("Location: " . url('dashboard') . "#reimbursement");
+        exit;
+    }
+    
+    $date = sanitizeString($_POST['date']);
+    $description = sanitizeString($_POST['description']);
+    $category = sanitizeString($_POST['category']);
+    $amount = sanitizeAmount($_POST['amount']);
     
     if (!empty($date) && !empty($description) && !empty($amount)) {
         try {
             $stmt = $pdo->prepare("INSERT INTO reimbursements (user, date, category, description, amount, status) VALUES (?, ?, ?, ?, ?, 'pending')");
             $stmt->execute([$currentUser, $date, $category, $description, $amount]);
-            $_SESSION['message'] = '<div class="alert alert-success alert-dismissible fade show" role="alert">Reimbursement berhasil diajukan!<button type="button" class="btn-close" data-bs-dismiss="alert"></button></div>';
+            setSuccessMessage('Reimbursement berhasil diajukan!');
         } catch (PDOException $e) {
-            $_SESSION['message'] = '<div class="alert alert-danger">Gagal mengajukan: ' . $e->getMessage() . '</div>';
+            setErrorMessage('Gagal mengajukan: ' . $e->getMessage());
         }
     } else {
-        $_SESSION['message'] = '<div class="alert alert-warning">Mohon lengkapi semua data.</div>';
+        setWarningMessage('Mohon lengkapi semua data.');
     }
     header("Location: " . url('dashboard') . "#reimbursement");
     exit;
@@ -41,35 +47,56 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
 
 // Handle Approve Reimbursement (Admin Only)
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'approve_reimbursement' && $isAdmin) {
-    $id = $_POST['reimbursement_id'];
-    $notes = trim($_POST['notes'] ?? '');
+    // Validate CSRF token
+    if (!validateCSRFToken()) {
+        setErrorMessage('Invalid security token. Please try again.');
+        header("Location: " . url('dashboard') . "#reimbursement");
+        exit;
+    }
+    
+    $id = sanitizeInt($_POST['reimbursement_id']);
+    $notes = sanitizeString($_POST['notes'] ?? '');
     
     $stmt = $pdo->prepare("UPDATE reimbursements SET status = 'approved', notes = ?, processed_at = CURRENT_TIMESTAMP, processed_by = ? WHERE id = ?");
     $stmt->execute([$notes, $currentUser, $id]);
-    $_SESSION['message'] = '<div class="alert alert-success alert-dismissible fade show" role="alert">Reimbursement disetujui!<button type="button" class="btn-close" data-bs-dismiss="alert"></button></div>';
+    setSuccessMessage('Reimbursement disetujui!');
     header("Location: " . url('dashboard') . "#reimbursement");
     exit;
 }
 
 // Handle Reject Reimbursement (Admin Only)
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'reject_reimbursement' && $isAdmin) {
-    $id = $_POST['reimbursement_id'];
-    $notes = trim($_POST['notes'] ?? '');
+    // Validate CSRF token
+    if (!validateCSRFToken()) {
+        setErrorMessage('Invalid security token. Please try again.');
+        header("Location: " . url('dashboard') . "#reimbursement");
+        exit;
+    }
+    
+    $id = sanitizeInt($_POST['reimbursement_id']);
+    $notes = sanitizeString($_POST['notes'] ?? '');
     
     $stmt = $pdo->prepare("UPDATE reimbursements SET status = 'rejected', notes = ?, processed_at = CURRENT_TIMESTAMP, processed_by = ? WHERE id = ?");
     $stmt->execute([$notes, $currentUser, $id]);
-    $_SESSION['message'] = '<div class="alert alert-warning alert-dismissible fade show" role="alert">Reimbursement ditolak.<button type="button" class="btn-close" data-bs-dismiss="alert"></button></div>';
+    setWarningMessage('Reimbursement ditolak.');
     header("Location: " . url('dashboard') . "#reimbursement");
     exit;
 }
 
 // Handle Mark as Paid (Admin Only)
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'mark_paid' && $isAdmin) {
-    $id = $_POST['reimbursement_id'];
+    // Validate CSRF token
+    if (!validateCSRFToken()) {
+        setErrorMessage('Invalid security token. Please try again.');
+        header("Location: " . url('dashboard') . "#reimbursement");
+        exit;
+    }
+    
+    $id = sanitizeInt($_POST['reimbursement_id']);
     
     $stmt = $pdo->prepare("UPDATE reimbursements SET status = 'paid' WHERE id = ? AND status = 'approved'");
     $stmt->execute([$id]);
-    $_SESSION['message'] = '<div class="alert alert-success alert-dismissible fade show" role="alert">Reimbursement ditandai sebagai dibayar!<button type="button" class="btn-close" data-bs-dismiss="alert"></button></div>';
+    setSuccessMessage('Reimbursement ditandai sebagai dibayar!');
     header("Location: " . url('dashboard') . "#reimbursement");
     exit;
 }

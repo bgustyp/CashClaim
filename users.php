@@ -8,24 +8,30 @@
  */
 session_start();
 require_once __DIR__ . '/config.php';
+require_once __DIR__ . '/security.php';
 require 'db.php';
+
 // Admin-only access
-if (!isset($_SESSION['user']) || $_SESSION['user'] !== 'Admin') {
-    header("Location: " . url('dashboard'));
-    exit;
-}
+requireAdmin();
 
 // Handle Update Access Code
 if (isset($_POST['update_code'])) {
-    $userId = $_POST['user_id'];
-    $newCode = trim($_POST['new_code']);
-    
-    if (!empty($newCode)) {
-        $stmt = $pdo->prepare("UPDATE users SET access_code = ? WHERE id = ?");
-        $stmt->execute([$newCode, $userId]);
-        $message = '<div class="alert alert-success">Kode akses berhasil diubah.</div>';
+    // Validate CSRF token
+    if (!validateCSRFToken()) {
+        $message = '<div class="alert alert-danger">Invalid security token. Please try again.</div>';
     } else {
-        $message = '<div class="alert alert-warning">Kode akses tidak boleh kosong.</div>';
+        $userId = sanitizeInt($_POST['user_id']);
+        $newCode = $_POST['new_code'];
+        
+        if (!empty($newCode)) {
+            // Hash the new password
+            $hashedCode = hashPassword($newCode);
+            $stmt = $pdo->prepare("UPDATE users SET access_code = ? WHERE id = ?");
+            $stmt->execute([$hashedCode, $userId]);
+            $message = '<div class="alert alert-success">Kode akses berhasil diubah.</div>';
+        } else {
+            $message = '<div class="alert alert-warning">Kode akses tidak boleh kosong.</div>';
+        }
     }
 }
 
@@ -113,17 +119,18 @@ require 'header.php';
             </div>
             <form method="POST">
                 <div class="modal-body">
+                    <?php csrfField(); ?>
                     <input type="hidden" name="user_id" id="modalUserId">
                     <div class="mb-3">
                         <label class="form-label">User: <span id="modalUserName" class="fw-bold"></span></label>
                     </div>
                     <div class="mb-3">
                         <label class="form-label">Kode Akses Saat Ini</label>
-                        <input type="text" id="modalCurrentCode" class="form-control" readonly>
+                        <input type="text" class="form-control" value="[Encrypted]" readonly>
                     </div>
                     <div class="mb-3">
                         <label class="form-label">Kode Akses Baru</label>
-                        <input type="text" name="new_code" class="form-control form-control-lg text-center" placeholder="Masukkan kode baru" required autofocus>
+                        <input type="password" name="new_code" class="form-control form-control-lg text-center" placeholder="Masukkan kode baru" required autofocus>
                     </div>
                 </div>
                 <div class="modal-footer">
